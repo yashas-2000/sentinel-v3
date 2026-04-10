@@ -1,0 +1,12 @@
+node_modules/
+.env
+.p2/
+.eclipse/
+.anaconda/
+.conda/
+.vscode/
+ml_backend/venv/
+ml_backend/models/
+ml_backend/data/
+__pycache__/
+*.pyc
