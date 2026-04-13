@@ -28,69 +28,70 @@ app.post('/api/predict', async (req, res) => {
     }
 });
 
-// The AI Route for OpenRouter
+// AI Route using Google Gemini
 app.post('/api/analyze', async (req, res) => {
     try {
-        // Log exactly what we receive to debug
-        console.log("Received body:", JSON.stringify(req.body));
+        console.log("Received body:", JSON.stringify(req.body).substring(0, 200));
 
-        // Handle both formats: { features, modelType } or flat object
-        let features = req.body.features || req.body;
-        let modelType = req.body.modelType || 'Unknown';
-
-        // Validate features exists
-        if (!features) {
-            throw new Error('No features data received');
+        // Check API key
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error('GEMINI_API_KEY is not set');
         }
 
-        // Safe fallbacks for all fields
-        const predicted_class = features.predicted_class ?? features.prediction ?? 'Unknown';
-        const proba = features.proba ?? features.confidence ?? features.probability ?? 'N/A';
-        const importance = features.importance ?? features.feature_importance ?? {};
+        // Extract the messages from whatever format the frontend sends
+        let systemPrompt = '';
+        let userMessage = '';
 
-        // Check API key is set
-        if (!process.env.OPENROUTER_API_KEY) {
-            throw new Error('OPENROUTER_API_KEY is not set');
+        if (req.body.messages) {
+            // Frontend is sending full messages array (current format)
+            const msgs = req.body.messages;
+            userMessage = msgs.map(m => m.content).join('\n');
+            systemPrompt = req.body.system || '';
+        } else {
+            // Fallback: features format
+            const features = req.body.features || req.body;
+            const modelType = req.body.modelType || 'Unknown';
+            const predicted_class = features.predicted_class ?? features.prediction ?? 'Unknown';
+            const proba = features.proba ?? features.confidence ?? 'N/A';
+            const importance = features.importance ?? {};
+            systemPrompt = "You are SENTINEL, a strategic defense AI. Provide a concise, professional military risk assessment.";
+            userMessage = `ML Analysis:\nPredicted Risk: ${predicted_class}\nConfidence: ${proba}\nModel: ${modelType}\nKey Features:\n${Object.entries(importance).map(([k,v]) => `- ${k}: ${v}`).join('\n')}`;
         }
 
-        const siteUrl = process.env.RENDER_EXTERNAL_URL || 'https://sentinel-v3-l5ve.onrender.com';
-
-        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                "HTTP-Referer": siteUrl,
-                "X-Title": "SENTINEL",
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                "model": "google/gemma-3-27b-it:free",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are SENTINEL, a strategic defense AI. Provide a concise, professional military risk assessment based on the provided ML predictions and features. Format as executive summary."
-                    },
-                    {
-                        "role": "user",
-                        "content": `ML Analysis:\nPredicted Risk: ${predicted_class}\nConfidence: ${proba}\nModel: ${modelType}\nKey Features:\n${Object.entries(importance).map(([k,v]) => `- ${k}: ${v}`).join('\n')}`
+        // Call Gemini API
+        const geminiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [
+                        {
+                            parts: [
+                                { text: systemPrompt ? `${systemPrompt}\n\n${userMessage}` : userMessage }
+                            ]
+                        }
+                    ],
+                    generationConfig: {
+                        maxOutputTokens: 2500,
+                        temperature: 0.7
                     }
-                ]
-            })
-        });
+                })
+            }
+        );
 
-        const data = await response.json();
-
-        // Log full OpenRouter response for debugging
-        console.log("OpenRouter response:", JSON.stringify(data));
+        const data = await geminiResponse.json();
+        console.log("Gemini response status:", geminiResponse.status);
 
         if (data.error) throw new Error(data.error.message);
 
-        res.json({
-            analysis: data.choices[0].message.content
-        });
+        const analysisText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!analysisText) throw new Error('No response from Gemini');
+
+        res.json({ analysis: analysisText });
 
     } catch (error) {
-        console.error("OpenRouter Error:", error.message);
+        console.error("Gemini Error:", error.message);
         res.status(500).json({ error: error.message || "Failed to generate AI report." });
     }
 });
@@ -99,7 +100,7 @@ app.post('/api/analyze', async (req, res) => {
 app.get('/health', (req, res) => res.json({
     status: 'ok',
     system: 'SENTINEL v3',
-    apiKeyConfigured: !!process.env.OPENROUTER_API_KEY,
+    apiKeyConfigured: !!process.env.GEMINI_API_KEY,
     mlUrl: process.env.ML_API_URL || 'localhost:5001'
 }));
 
@@ -108,9 +109,9 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start the server
+// Start server
 app.listen(PORT, () => {
     console.log(`🚀 SENTINEL Server running at http://localhost:${PORT}`);
     console.log(`🔗 ML Backend: ${process.env.ML_API_URL || 'http://localhost:5001'}`);
-    console.log(`🔑 OpenRouter Key: ${process.env.OPENROUTER_API_KEY ? 'SET ✓' : 'MISSING ✗'}`);
+    console.log(`🔑 Gemini Key: ${process.env.GEMINI_API_KEY ? 'SET ✓' : 'MISSING ✗'}`);
 });
