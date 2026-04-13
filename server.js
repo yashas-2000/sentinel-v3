@@ -28,25 +28,26 @@ app.post('/api/predict', async (req, res) => {
     }
 });
 
-// AI Route using Google Gemini
+// AI Route using Groq
 app.post('/api/analyze', async (req, res) => {
     try {
         console.log("Received body:", JSON.stringify(req.body).substring(0, 200));
 
         // Check API key
-        if (!process.env.GEMINI_API_KEY) {
-            throw new Error('GEMINI_API_KEY is not set');
+        if (!process.env.GROQ_API_KEY) {
+            throw new Error('GROQ_API_KEY is not set');
         }
 
-        // Extract the messages from whatever format the frontend sends
-        let systemPrompt = '';
-        let userMessage = '';
+        // Extract messages from whatever format the frontend sends
+        let messages = [];
 
         if (req.body.messages) {
-            // Frontend is sending full messages array (current format)
-            const msgs = req.body.messages;
-            userMessage = msgs.map(m => m.content).join('\n');
-            systemPrompt = req.body.system || '';
+            // Frontend sends full messages array
+            const systemPrompt = req.body.system || '';
+            if (systemPrompt) {
+                messages.push({ role: 'system', content: systemPrompt });
+            }
+            messages = messages.concat(req.body.messages);
         } else {
             // Fallback: features format
             const features = req.body.features || req.body;
@@ -54,44 +55,45 @@ app.post('/api/analyze', async (req, res) => {
             const predicted_class = features.predicted_class ?? features.prediction ?? 'Unknown';
             const proba = features.proba ?? features.confidence ?? 'N/A';
             const importance = features.importance ?? {};
-            systemPrompt = "You are SENTINEL, a strategic defense AI. Provide a concise, professional military risk assessment.";
-            userMessage = `ML Analysis:\nPredicted Risk: ${predicted_class}\nConfidence: ${proba}\nModel: ${modelType}\nKey Features:\n${Object.entries(importance).map(([k,v]) => `- ${k}: ${v}`).join('\n')}`;
+            messages = [
+                {
+                    role: 'system',
+                    content: 'You are SENTINEL, a strategic defense AI. Provide a concise, professional military risk assessment.'
+                },
+                {
+                    role: 'user',
+                    content: `ML Analysis:\nPredicted Risk: ${predicted_class}\nConfidence: ${proba}\nModel: ${modelType}\nKey Features:\n${Object.entries(importance).map(([k,v]) => `- ${k}: ${v}`).join('\n')}`
+                }
+            ];
         }
 
-        // Call Gemini API
-        const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [
-                        {
-                            parts: [
-                                { text: systemPrompt ? `${systemPrompt}\n\n${userMessage}` : userMessage }
-                            ]
-                        }
-                    ],
-                    generationConfig: {
-                        maxOutputTokens: 2500,
-                        temperature: 0.7
-                    }
-                })
-            }
-        );
+        // Call Groq API (OpenAI-compatible format)
+        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages: messages,
+                max_tokens: 2500,
+                temperature: 0.7
+            })
+        });
 
-        const data = await geminiResponse.json();
-        console.log("Gemini response status:", geminiResponse.status);
+        const data = await groqResponse.json();
+        console.log("Groq response status:", groqResponse.status);
 
         if (data.error) throw new Error(data.error.message);
 
-        const analysisText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!analysisText) throw new Error('No response from Gemini');
+        const analysisText = data.choices?.[0]?.message?.content;
+        if (!analysisText) throw new Error('No response from Groq');
 
         res.json({ analysis: analysisText });
 
     } catch (error) {
-        console.error("Gemini Error:", error.message);
+        console.error("Groq Error:", error.message);
         res.status(500).json({ error: error.message || "Failed to generate AI report." });
     }
 });
@@ -100,7 +102,7 @@ app.post('/api/analyze', async (req, res) => {
 app.get('/health', (req, res) => res.json({
     status: 'ok',
     system: 'SENTINEL v3',
-    apiKeyConfigured: !!process.env.GEMINI_API_KEY,
+    apiKeyConfigured: !!process.env.GROQ_API_KEY,
     mlUrl: process.env.ML_API_URL || 'localhost:5001'
 }));
 
@@ -113,5 +115,5 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 SENTINEL Server running at http://localhost:${PORT}`);
     console.log(`🔗 ML Backend: ${process.env.ML_API_URL || 'http://localhost:5001'}`);
-    console.log(`🔑 Gemini Key: ${process.env.GEMINI_API_KEY ? 'SET ✓' : 'MISSING ✗'}`);
+    console.log(`🔑 Groq Key: ${process.env.GROQ_API_KEY ? 'SET ✓' : 'MISSING ✗'}`);
 });
