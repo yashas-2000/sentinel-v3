@@ -1845,8 +1845,12 @@ ABSOLUTE RULES:
     }
 
     let text = '';
-    if (data.content) {
+    if (data.content && Array.isArray(data.content)) {
+      // Anthropic format: data.content[].text
       text = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    } else if (data.analysis) {
+      // Groq/server format: data.analysis
+      text = data.analysis;
     }
 
     // FIX: robust JSON extraction — handles preamble, code fences, nested objects
