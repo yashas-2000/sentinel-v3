@@ -433,14 +433,16 @@ def predict_buildup():
         'timestamp':       datetime.now().isoformat(),
     })
 
-
 if __name__ == '__main__':
-    port = int(os.environ.get('ML_PORT', 5001))
+    # Render provides 'PORT', not 'ML_PORT'. 5001 is fine for local testing.
+    port = int(os.environ.get('PORT', 5001)) 
+    
     print("\n╔══════════════════════════════════════════════╗")
     print("║     SENTINEL v3  —  ML API Online             ║")
     print("╠══════════════════════════════════════════════╣")
-    print(f"║  Flask API  →  http://localhost:{port}            ║")
-    print(f"║  Health     →  http://localhost:{port}/health     ║")
-    print(f"║  Models     →  http://localhost:{port}/models/info║")
+    # Change these prints to help you debug in the Render logs
+    print(f"║  Binding to →  0.0.0.0:{port}                 ║")
     print("╚══════════════════════════════════════════════╝\n")
+    
+    # host='0.0.0.0' is correct and required for Render
     app.run(host='0.0.0.0', port=port, debug=False)
